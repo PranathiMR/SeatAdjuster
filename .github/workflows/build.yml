@@ -1,4 +1,4 @@
-name: Build Seat Adjuster (Final)
+name: Build Seat Adjuster (Final, Corrected Variable)
 
 on:
   push:
@@ -112,9 +112,9 @@ jobs:
         
         echo "--- CONFIGURING CMAKE ---"
         # --- THE FINAL FIX IS HERE ---
-        # We explicitly tell CMake to use our FAKE script.
-        # This overrides its default behavior and stops the "Error 2".
-        cmake --preset conan-release -DVSS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
+        # We explicitly tell CMake to use our FAKE script by setting
+        # the CORRECT variable name: 'VELOCITAS_MODEL_GENERATOR_EXECUTABLE'
+        cmake --preset conan-release -DVELOCITAS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
         
         echo "--- COMPILING ---"
         # This will now run the "shim" (which does nothing) and
