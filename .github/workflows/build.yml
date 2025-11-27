@@ -26,23 +26,34 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Generate Model (Sysconfig Method)
+   # 4. Install Dependencies & Generate Model (Search & Execute)
     - name: Install Dependencies & Generate Model
       run: |
         pip install conan velocitas-model-generator jinja2
         
-        SCRIPTS_FOLDER=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
+        echo "--- SEARCHING FOR GENERATOR ---"
+        # 1. Get the Python installation root folder
+        PY_ROOT=$(python -c "import sys; print(sys.prefix)")
         
-        echo "Detected Scripts Folder: $SCRIPTS_FOLDER"
+        # 2. Find the file 'velocitas-model-generator' anywhere inside that folder
+        # We use 'head -n 1' to grab the first match found
+        TOOL_PATH=$(find "$PY_ROOT" -name "velocitas-model-generator" -type f | head -n 1)
         
-        TOOL_PATH="$SCRIPTS_FOLDER/velocitas-model-generator"
-
+        if [ -z "$TOOL_PATH" ]; then
+          echo "CRITICAL ERROR: Could not find velocitas-model-generator script."
+          echo "Listing installed files to debug:"
+          pip show -f velocitas-model-generator
+          exit 1
+        fi
+        
+        echo "FOUND TOOL AT: $TOOL_PATH"
+        
+        # 3. Execute the found tool
         $TOOL_PATH -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
         
         # Setup Conan
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
-
     # 5. Install SDK Dependencies
     # We add -g CMakeDeps -g CMakeToolchain to ensure presets are generated
     - name: Install Dependencies
