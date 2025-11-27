@@ -34,7 +34,7 @@ jobs:
         echo "Running generator via direct Python import..."
         
        
-        python -c "from velocitas_model_generator.cli import main; import sys; sys.argv=['prog', '-m', 'examples/seat-adjuster/app/AppManifest.json', '-l', 'cpp', '-T', 'examples/seat-adjuster/src']; main()"
+        python -c "from velocitas-model-generator.cli import main; import sys; sys.argv=['prog', '-m', 'examples/seat-adjuster/app/AppManifest.json', '-l', 'cpp', '-T', 'examples/seat-adjuster/src']; main()"
         
         # Setup Conan
         conan profile detect --force
