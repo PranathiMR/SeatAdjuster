@@ -26,79 +26,57 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Generate Vehicle Model (With Post-Processing Fix)
-    - name: Generate Vehicle Model
+    # 4. Install Dependencies & Fix PATH
+    - name: Setup Build Environment
       run: |
+        # Install the tools
         python -m pip install conan velocitas-model-generator jinja2
 
+        # CRITICAL FIX: Add Python Scripts folder to $GITHUB_PATH
+        # This makes 'velocitas-model-generator' visible to CMake in the next steps
+        PYTHON_BIN=$(python -c "import sys; print(sys.prefix + '/bin')")
+        echo "$PYTHON_BIN" >> $GITHUB_PATH
+        echo "Added $PYTHON_BIN to PATH"
+
+    # 5. Prepare Vehicle Model (Downloads & Manual Gen)
+    - name: Generate Vehicle Model
+      run: |
         echo "--- DOWNLOADING VSS v4.0 DATA ---"
+        # Download VSS files to the root so CMake can find them easily
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
-        echo "--- PREPARING FOLDERS ---"
-        # Create target directory
+        echo "--- MANUAL GENERATION (Fail-Safe) ---"
+        # We run this manually to ensure files exist before CMake starts
+        # Now that PATH is fixed, we can call the tool directly!
+        velocitas-model-generator \
+          -u units.yaml \
+          -l cpp \
+          -T examples/seat-adjuster/src/vehicle \
+          vss.json
+        
+        echo "--- POST-PROCESSING ---"
+        # Flatten the directory structure if nested (Common issue)
         TARGET_DIR="examples/seat-adjuster/src/vehicle"
-        mkdir -p "$TARGET_DIR"
-
-        echo "--- RUNNING GENERATOR ---"
-        cat <<EOF > run_gen.py
-        import sys
-        try:
-            from velocitas.model_generator.cli import main
-        except ImportError:
-            from velocitas_model_generator.cli import main
-
-        sys.argv = [
-            'velocitas-model-generator',
-            '-u', 'units.yaml',
-            '-l', 'cpp',
-            '-T', '$TARGET_DIR',
-            'vss.json'
-        ]
-        
-        main()
-        EOF
-        
-        python run_gen.py
-        
-        echo "--- FIXING FILE STRUCTURE ---"
-        # The generator creates a nested structure: src/vehicle/include/vehicle/...
-        # We need to move those files UP to src/vehicle/ so the compiler finds them.
         
         if [ -d "$TARGET_DIR/include/vehicle" ]; then
-            echo "Flattening nested folder structure..."
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
-            rm -rf $TARGET_DIR/include
         fi
         
-        # FIX: The app expects 'Vehicle.h' but we generated 'Vehicle.hpp'.
-        # We create a copy named 'Vehicle.h' to satisfy the compiler.
+        # Compatibility Link (Vehicle.hpp -> Vehicle.h)
         if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
-            echo "Creating Vehicle.h compatibility link..."
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         fi
 
-        # Final Verification
-        if [ -f "$TARGET_DIR/Vehicle.h" ] || [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
-            echo "SUCCESS: Vehicle model generated and positioned correctly."
-            ls -l $TARGET_DIR
-        else
-            echo "CRITICAL ERROR: Headers missing after fix."
-            exit 1
-        fi
-
-   # 5. Build the App
+    # 6. Build the App
     - name: Build Seat Adjuster
       run: |
-        # Setup Conan
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
-        echo "--- STARTING BUILD ---"
-        
-        # Configure using the preset
+        echo "--- BUILDING ---"
+        # Using the preset is the safest way
         cmake --preset conan-release
         
-        # FIX: Removed '--target seat-adjuster'. 
-        # By removing it, CMake will build whatever executable it configured (the correct one).
+        # Build Everything (The Seat Adjuster is part of 'all')
         cmake --build --preset conan-release
