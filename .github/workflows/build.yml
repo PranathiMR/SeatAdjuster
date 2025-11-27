@@ -26,24 +26,49 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install & Run Generator (The Fix)
+    # 4. Install Dependencies & Generate Model (Targeted Import Fix)
     - name: Install Dependencies & Generate Model
       run: |
-        # Install tools using the current python interpreter
         python -m pip install conan velocitas-model-generator jinja2
         
-        echo "Generating Vehicle Model..."
+        echo "Running generator via internal CLI import..."
         
-        # FIX: Use the 'dot' notation for the namespace package
-        python -m velocitas.model_generator -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        # FIX: We import 'velocitas.model_generator.cli' specifically.
+        # This fixes the "package cannot be directly executed" error.
+        cat <<EOF > run_gen.py
+        import sys
         
-        # Verify file creation
-        if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
-            echo "SUCCESS: Vehicle.h was generated!"
-        else
-            echo "ERROR: Generation failed."
-            exit 1
-        fi
+        # 1. Import the specific CLI module (using the DOT notation we verified)
+        try:
+            from velocitas.model_generator.cli import main
+        except ImportError:
+            # Fallback: In some versions it might be in the root or named differently
+            print("CLI module not found, trying fallback...")
+            from velocitas.model_generator import main
+
+        # 2. Set the command line arguments manually
+        sys.argv = [
+            'velocitas-model-generator',
+            '-m', 'examples/seat-adjuster/app/AppManifest.json',
+            '-l', 'cpp',
+            '-T', 'examples/seat-adjuster/src'
+        ]
+        
+        # 3. Run it
+        print("Starting generation...")
+        main()
+        print("Generation finished.")
+        EOF
+        
+        # Execute the script
+        python run_gen.py
+        
+        # Verify result (Optional check to be sure)
+        ls -l examples/seat-adjuster/src/vehicle/Vehicle.h
+        
+        # Setup Conan
+        conan profile detect --force
+        conan install . --output-folder=build --build=missing -s build_type=Release
 
     # 5. Build the App
     - name: Build Seat Adjuster
