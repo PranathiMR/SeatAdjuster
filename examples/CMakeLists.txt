@@ -12,10 +12,12 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-add_subdirectory(example_model)
+cmake_minimum_required(VERSION 3.16)
+
+#add_subdirectory(example_model)
 
 # Currently only adding examples that can be tested without additional velocitas code generation
 
-add_subdirectory(performance-subscribe)
+#add_subdirectory(performance-subscribe)
 add_subdirectory(seat-adjuster)
-add_subdirectory(set-data-points)
+#add_subdirectory(set-data-points)
