@@ -26,19 +26,20 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Generate Model
+    # 4. Install Dependencies & Generate Model (Robust Version)
     - name: Install Dependencies & Generate Model
       run: |
-        pip install conan
-        pip install velocitas-model-generator
-        pip install jinja2
+        pip install conan velocitas-model-generator jinja2
         
-        # 1. Force-generate the missing header file
-        # FIX: We use 'python -m velocitas_model_generator' to bypass PATH issues
-        echo "Generating Vehicle Model..."
-        python -m velocitas_model_generator -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        # FIX: Find exactly where the generator tool is hiding
+        GENERATOR_TOOL=$(find /opt/hostedtoolcache /home/runner -name velocitas-model-generator -type f 2>/dev/null | head -n 1)
         
-        # 2. Setup Conan
+        echo "Found generator at: $GENERATOR_TOOL"
+        
+        # Run the tool using the path we found
+        $GENERATOR_TOOL -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        
+        # Setup Conan
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
 
