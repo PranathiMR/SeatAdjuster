@@ -26,10 +26,14 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Conan (The Package Manager)
-    - name: Install Conan
+   # 4. Install Dependencies (Conan + Generator Tools)
+    - name: Install Python Dependencies & Conan
       run: |
         pip install conan
+        # This installs the tools needed to generate Vehicle.h (like jinja2)
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # Fallback: manually install jinja2 just in case requirements.txt is missing
+        pip install jinja2 
         conan profile detect --force
 
     # 5. Install SDK Dependencies
