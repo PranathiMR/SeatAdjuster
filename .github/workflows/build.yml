@@ -26,29 +26,29 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. FIX: Download VSS Model & Generate Header
+    # 4. Generate Vehicle Model (Fixed Link)
     - name: Generate Vehicle Model (From Standard VSS)
       run: |
         # Install the generator tool
         python -m pip install conan velocitas-model-generator jinja2
 
         echo "--- DOWNLOADING STANDARD VSS MODEL ---"
-        # Download the official VSS v3.0 JSON and units.yaml (Required by the tool)
+        # Download VSS v3.0 JSON (This worked)
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v3.0/vss_rel_3.0.json -O vss.json
-        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v3.0/spec/units.yaml -O units.yaml
+        
+        # FIX: Changed URL from 'v3.0' to 'master' to avoid 404 error
+        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/master/spec/units.yaml -O units.yaml
 
         echo "--- GENERATING VEHICLE.H ---"
         
-        # Create a Python script to run the generator using the CORRECT input file (vss.json)
+        # Create script to run generator
         cat <<EOF > run_gen.py
         import sys
-        # Import the internal CLI
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # Pass the VSS JSON file we just downloaded, NOT the AppManifest
         sys.argv = [
             'velocitas-model-generator',
             '-m', 'vss.json',
@@ -60,10 +60,10 @@ jobs:
         main()
         EOF
         
-        # Run the generation
+        # Run it
         python run_gen.py
         
-        # Verify it worked
+        # Verify
         if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
             echo "SUCCESS: Vehicle.h created!"
         else
