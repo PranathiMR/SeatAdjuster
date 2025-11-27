@@ -26,47 +26,76 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Fix PATH
+    # 4. Install Dependencies & Fix System PATH
     - name: Setup Build Environment
       run: |
-        # Install the tools
+        # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
 
-        # CRITICAL FIX: Add Python Scripts folder to $GITHUB_PATH
-        # This makes 'velocitas-model-generator' visible to CMake in the next steps
-        PYTHON_BIN=$(python -c "import sys; print(sys.prefix + '/bin')")
-        echo "$PYTHON_BIN" >> $GITHUB_PATH
-        echo "Added $PYTHON_BIN to PATH"
+        # FIX: Find Python's 'scripts' folder and add it to the $GITHUB_PATH
+        # This makes 'velocitas-model-generator' visible to CMake in the final build step
+        PYTHON_SCRIPTS_PATH=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
+        echo "$PYTHON_SCRIPTS_PATH" >> $GITHUB_PATH
+        echo "Added $PYTHON_SCRIPTS_PATH to system PATH for subsequent steps."
 
-    # 5. Prepare Vehicle Model (Downloads & Manual Gen)
+    # 5. Manually Generate Vehicle Model
     - name: Generate Vehicle Model
       run: |
         echo "--- DOWNLOADING VSS v4.0 DATA ---"
-        # Download VSS files to the root so CMake can find them easily
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
-        echo "--- MANUAL GENERATION (Fail-Safe) ---"
-        # We run this manually to ensure files exist before CMake starts
-        # Now that PATH is fixed, we can call the tool directly!
-        velocitas-model-generator \
-          -u units.yaml \
-          -l cpp \
-          -T examples/seat-adjuster/src/vehicle \
-          vss.json
-        
-        echo "--- POST-PROCESSING ---"
-        # Flatten the directory structure if nested (Common issue)
+        echo "--- PREPARING FOLDERS ---"
         TARGET_DIR="examples/seat-adjuster/src/vehicle"
+        mkdir -p "$TARGET_DIR"
+
+        echo "--- RUNNING GENERATOR (via Python Script) ---"
+        # We use this script to BYPASS the PATH for the manual run, guaranteeing it works
+        cat <<EOF > run_gen.py
+        import sys
         
+        # Import the tool's internal main function
+        try:
+            from velocitas.model_generator.cli import main
+        except ImportError:
+            from velocitas_model_generator.cli import main
+
+        # Set the correct arguments (VSS 4.0, units, and positional file path)
+        sys.argv = [
+            'velocitas-model-generator',
+            '-u', 'units.yaml',
+            '-l', 'cpp',
+            '-T', '$TARGET_DIR',
+            'vss.json'
+        ]
+        
+        print(f"Running generator with args: {sys.argv}")
+        main()
+        EOF
+        
+        # Run the script
+        python run_gen.py
+        
+        echo "--- POST-PROCESSING FILE STRUCTURE ---"
+        # Flatten the nested 'include/vehicle' folder created by the tool
         if [ -d "$TARGET_DIR/include/vehicle" ]; then
+            echo "Flattening nested folder..."
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
         fi
         
-        # Compatibility Link (Vehicle.hpp -> Vehicle.h)
+        # Create .h symlink for .hpp to satisfy C++ #include
         if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
+            echo "Creating compatibility link Vehicle.h -> Vehicle.hpp"
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         fi
+
+        # Verify
+        if [ ! -f "$TARGET_DIR/Vehicle.h" ]; then
+            echo "CRITICAL ERROR: Vehicle.h not found after generation."
+            ls -R examples/seat-adjuster/src
+            exit 1
+        fi
+        echo "SUCCESS: Vehicle.h is in place."
 
     # 6. Build the App
     - name: Build Seat Adjuster
@@ -74,9 +103,11 @@ jobs:
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
-        echo "--- BUILDING ---"
-        # Using the preset is the safest way
+        echo "--- CONFIGURING CMAKE ---"
+        # This will use the generated 'conan-release' preset
         cmake --preset conan-release
         
-        # Build Everything (The Seat Adjuster is part of 'all')
+        echo "--- COMPILING ---"
+        # This step will re-run the generator, but it will succeed
+        # because the PATH was fixed in Step 4.
         cmake --build --preset conan-release
