@@ -34,9 +34,9 @@ jobs:
         pip install jinja2
         
         # 1. Force-generate the missing header file
-        # We tell the tool: "Read the manifest here, output C++ code to the 'gen' folder"
+        # FIX: We use 'python -m velocitas_model_generator' to bypass PATH issues
         echo "Generating Vehicle Model..."
-        velocitas-model-generator -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        python -m velocitas_model_generator -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
         
         # 2. Setup Conan
         conan profile detect --force
