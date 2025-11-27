@@ -1,4 +1,4 @@
-name: Build Seat Adjuster
+name: Build Seat Adjuster (Final)
 
 on:
   push:
@@ -97,9 +97,9 @@ jobs:
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
         fi
         
-        # Create .h symlink for .hpp to satisfy C++ #include
+        # Create .h copy from .hpp to satisfy C++ #include
         if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
-            echo "Creating compatibility link Vehicle.h -> Vehicle.hpp"
+            echo "Creating compatibility copy Vehicle.h from Vehicle.hpp"
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         fi
 
