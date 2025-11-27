@@ -8,46 +8,53 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # Running on Linux avoids all your Windows issues
+    runs-on: ubuntu-22.04
 
     steps:
-    # 1. Check out your code
+    # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Install Python (Required for Conan)
+    # 2. Set up Python 3.10 (Standard for this SDK)
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.10' 
+        python-version: '3.10'
 
-    # 3. Install CMake (The Builder)
+    # 3. Install CMake
     - name: Install CMake
       uses: jwlawson/actions-setup-cmake@v1.14
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies (Conan + Generator Tool)
-    - name: Install Dependencies
+    # 4. Install & Run Generator (The Fix)
+    - name: Install Dependencies & Generate Model
       run: |
-        pip install conan
-        # This is the missing tool that creates Vehicle.h
-        pip install velocitas-model-generator
+        # Install tools using the current python interpreter
+        python -m pip install conan velocitas-model-generator jinja2
         
-        # Install jinja2 just in case the generator needs it
-        pip install jinja2
+        echo "Generating Vehicle Model..."
         
+        # FIX: Use the 'dot' notation for the namespace package
+        python -m velocitas.model_generator -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        
+        # Verify file creation
+        if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
+            echo "SUCCESS: Vehicle.h was generated!"
+        else
+            echo "ERROR: Generation failed."
+            exit 1
+        fi
+
+    # 5. Build the App
+    - name: Build Seat Adjuster
+      run: |
+        # Setup Conan profile
         conan profile detect --force
+        
+        # Install C++ libraries
         conan install . --output-folder=build --build=missing -s build_type=Release
-
-    # 5. Install SDK Dependencies
-    # We add -g CMakeDeps -g CMakeToolchain to ensure presets are generated
-    - name: Install Dependencies
-      run: |
-        conan install . --output-folder=build --build=missing -s build_type=Release
-
-    # 6. Build the Application using Presets
-    # This automatically finds the toolchain file wherever Conan put it
-    - name: Build
-      run: |
-        cmake --preset conan-release
-        cmake --build --preset conan-release
+        
+        # Compile
+        cd build
+        cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --target seat-adjuster
