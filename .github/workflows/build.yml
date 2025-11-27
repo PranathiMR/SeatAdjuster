@@ -33,12 +33,10 @@ jobs:
         python -m pip install conan velocitas-model-generator jinja2
 
         # --- THE SHIM SCRIPT ---
-        # This is the fix for the "Error 2" in the final build step.
-        # We create a dummy script that CMake will run instead of the real one.
-        echo "Creating generator shim..."
+        # We create our fake script in a known location.
+        echo "Creating generator shim in $HOME/bin..."
         mkdir -p $HOME/bin
         
-        # Create a fake script that does nothing and exits successfully
         cat <<EOF > $HOME/bin/velocitas-model-generator
         #!/bin/bash
         echo "Build-step generator call intercepted by shim. Skipping."
@@ -47,10 +45,7 @@ jobs:
         
         # Make it executable
         chmod +x $HOME/bin/velocitas-model-generator
-        
-        # Add THIS shim directory to the system PATH
-        echo "$HOME/bin" >> $GITHUB_PATH
-        echo "Shim script created and $HOME/bin added to PATH."
+        echo "Shim script created."
 
     # 5. Manually Generate Vehicle Model (The Real One)
     - name: Generate Vehicle Model (Manual)
@@ -64,7 +59,7 @@ jobs:
         mkdir -p "$TARGET_DIR"
 
         echo "--- RUNNING GENERATOR (via Python Script) ---"
-        # We use this script to BYPASS the PATH and run the real tool
+        # We run the REAL generator using our proven Python script method
         cat <<EOF > run_gen.py
         import sys
         
@@ -74,7 +69,7 @@ jobs:
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # Set the correct arguments (VSS 4.0, units, and positional file path)
+        # Set the correct arguments
         sys.argv = [
             'velocitas-model-generator',
             '-u', 'units.yaml',
@@ -83,7 +78,6 @@ jobs:
             'vss.json'
         ]
         
-        print(f"Running generator with args: {sys.argv}")
         main()
         EOF
         
@@ -91,13 +85,13 @@ jobs:
         python run_gen.py
         
         echo "--- POST-PROCESSING FILE STRUCTURE ---"
-        # Fix the nested 'include/vehicle' folder created by the tool
+        # Fix the nested 'include/vehicle' folder
         if [ -d "$TARGET_DIR/include/vehicle" ]; then
             echo "Flattening nested folder..."
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
         fi
         
-        # Create .h copy from .hpp to satisfy C++ #include
+        # Create .h copy from .hpp
         if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
             echo "Creating compatibility copy Vehicle.h from Vehicle.hpp"
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
@@ -106,7 +100,6 @@ jobs:
         # Final check
         if [ ! -f "$TARGET_DIR/Vehicle.h" ]; then
             echo "CRITICAL ERROR: Vehicle.h not found after generation."
-            ls -R examples/seat-adjuster/src
             exit 1
         fi
         echo "SUCCESS: Vehicle.h is in place."
@@ -118,9 +111,12 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- CONFIGURING CMAKE ---"
-        cmake --preset conan-release
+        # --- THE FINAL FIX IS HERE ---
+        # We explicitly tell CMake to use our FAKE script.
+        # This overrides its default behavior and stops the "Error 2".
+        cmake --preset conan-release -DVSS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
         
         echo "--- COMPILING ---"
-        # This step will run the "shim" script (which does nothing)
-        # and then compile the code generated in Step 5.
+        # This will now run the "shim" (which does nothing) and
+        # compile the code generated in Step 5.
         cmake --build --preset conan-release
