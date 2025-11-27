@@ -14,32 +14,46 @@ jobs:
     # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Set up Python
+    # 2. Set up Python 3.10
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    # 3. Install CMake
+    # 3. Install CMake 3.25
     - name: Install CMake
       uses: jwlawson/actions-setup-cmake@v1.14
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Fix System PATH
+    # 4. Setup Environment & Create "Generator Shim"
     - name: Setup Build Environment
       run: |
         # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
 
-        # FIX: Find Python's 'scripts' folder and add it to the $GITHUB_PATH
-        # This makes 'velocitas-model-generator' visible to CMake in the final build step
-        PYTHON_SCRIPTS_PATH=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
-        echo "$PYTHON_SCRIPTS_PATH" >> $GITHUB_PATH
-        echo "Added $PYTHON_SCRIPTS_PATH to system PATH for subsequent steps."
+        # --- THE SHIM SCRIPT ---
+        # This is the fix for the "Error 2" in the final build step.
+        # We create a dummy script that CMake will run instead of the real one.
+        echo "Creating generator shim..."
+        mkdir -p $HOME/bin
+        
+        # Create a fake script that does nothing and exits successfully
+        cat <<EOF > $HOME/bin/velocitas-model-generator
+        #!/bin/bash
+        echo "Build-step generator call intercepted by shim. Skipping."
+        exit 0
+        EOF
+        
+        # Make it executable
+        chmod +x $HOME/bin/velocitas-model-generator
+        
+        # Add THIS shim directory to the system PATH
+        echo "$HOME/bin" >> $GITHUB_PATH
+        echo "Shim script created and $HOME/bin added to PATH."
 
-    # 5. Manually Generate Vehicle Model
-    - name: Generate Vehicle Model
+    # 5. Manually Generate Vehicle Model (The Real One)
+    - name: Generate Vehicle Model (Manual)
       run: |
         echo "--- DOWNLOADING VSS v4.0 DATA ---"
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
@@ -50,7 +64,7 @@ jobs:
         mkdir -p "$TARGET_DIR"
 
         echo "--- RUNNING GENERATOR (via Python Script) ---"
-        # We use this script to BYPASS the PATH for the manual run, guaranteeing it works
+        # We use this script to BYPASS the PATH and run the real tool
         cat <<EOF > run_gen.py
         import sys
         
@@ -73,11 +87,11 @@ jobs:
         main()
         EOF
         
-        # Run the script
+        # Run the real generator
         python run_gen.py
         
         echo "--- POST-PROCESSING FILE STRUCTURE ---"
-        # Flatten the nested 'include/vehicle' folder created by the tool
+        # Fix the nested 'include/vehicle' folder created by the tool
         if [ -d "$TARGET_DIR/include/vehicle" ]; then
             echo "Flattening nested folder..."
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
@@ -89,7 +103,7 @@ jobs:
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         fi
 
-        # Verify
+        # Final check
         if [ ! -f "$TARGET_DIR/Vehicle.h" ]; then
             echo "CRITICAL ERROR: Vehicle.h not found after generation."
             ls -R examples/seat-adjuster/src
@@ -104,10 +118,9 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- CONFIGURING CMAKE ---"
-        # This will use the generated 'conan-release' preset
         cmake --preset conan-release
         
         echo "--- COMPILING ---"
-        # This step will re-run the generator, but it will succeed
-        # because the PATH was fixed in Step 4.
+        # This step will run the "shim" script (which does nothing)
+        # and then compile the code generated in Step 5.
         cmake --build --preset conan-release
