@@ -26,50 +26,57 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Generate Model (Targeted Import Fix)
+   # 4. Install Dependencies & Generate Model (Auto-Locate File)
     - name: Install Dependencies & Generate Model
       run: |
         python -m pip install conan velocitas-model-generator jinja2
         
-        echo "Running generator via internal CLI import..."
+        echo "--- AUTO-LOCATING MANIFEST FILE ---"
+        # Find the file named 'AppManifest.json' anywhere in the repo
+        MANIFEST_PATH=$(find . -name AppManifest.json | head -n 1)
         
-        # FIX: We import 'velocitas.model_generator.cli' specifically.
-        # This fixes the "package cannot be directly executed" error.
+        if [ -z "$MANIFEST_PATH" ]; then
+            echo "CRITICAL ERROR: Could not find AppManifest.json anywhere!"
+            find . -maxdepth 3 # List files to help debug
+            exit 1
+        fi
+        
+        echo "Found manifest at: $MANIFEST_PATH"
+        
+        # Calculate the source directory (usually ../src relative to the app folder)
+        # We assume the standard structure: .../app/AppManifest.json -> .../src
+        APP_DIR=$(dirname "$MANIFEST_PATH")
+        SRC_DIR="$APP_DIR/../src"
+        
+        echo "Targeting Source Directory: $SRC_DIR"
+        
+        echo "--- RUNNING GENERATOR ---"
+        
+        # Create the execution script using the found paths
         cat <<EOF > run_gen.py
         import sys
-        
-        # 1. Import the specific CLI module (using the DOT notation we verified)
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
-            # Fallback: In some versions it might be in the root or named differently
-            print("CLI module not found, trying fallback...")
-            from velocitas.model_generator import main
+            from velocitas_model_generator.cli import main
 
-        # 2. Set the command line arguments manually
+        # Use the paths we found dynamically
         sys.argv = [
             'velocitas-model-generator',
             '-l', 'cpp',
-            '-T', 'examples/seat-adjuster/src',
-            'examples/seat-adjuster/app/AppManifest.json'
+            '-T', '$SRC_DIR',
+            '$MANIFEST_PATH'
         ]
         
-        # 3. Run it
-        print("Starting generation...")
         main()
-        print("Generation finished.")
         EOF
         
-        # Execute the script
+        # Run it
         python run_gen.py
-        
-        # Verify result (Optional check to be sure)
-        ls -l examples/seat-adjuster/src/vehicle/Vehicle.h
         
         # Setup Conan
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
-
     # 5. Build the App
     - name: Build Seat Adjuster
       run: |
