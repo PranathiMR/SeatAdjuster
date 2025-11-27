@@ -14,7 +14,7 @@ jobs:
     # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Set up Python 3.10 (Standard for this SDK)
+    # 2. Set up Python
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -26,67 +26,57 @@ jobs:
       with:
         cmake-version: '3.25'
 
-   # 4. Install Dependencies & Generate Model (Auto-Locate File)
-    - name: Install Dependencies & Generate Model
+    # 4. FIX: Download VSS Model & Generate Header
+    - name: Generate Vehicle Model (From Standard VSS)
       run: |
+        # Install the generator tool
         python -m pip install conan velocitas-model-generator jinja2
+
+        echo "--- DOWNLOADING STANDARD VSS MODEL ---"
+        # Download the official VSS v3.0 JSON and units.yaml (Required by the tool)
+        wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v3.0/vss_rel_3.0.json -O vss.json
+        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v3.0/spec/units.yaml -O units.yaml
+
+        echo "--- GENERATING VEHICLE.H ---"
         
-        echo "--- AUTO-LOCATING MANIFEST FILE ---"
-        # Find the file named 'AppManifest.json' anywhere in the repo
-        MANIFEST_PATH=$(find . -name AppManifest.json | head -n 1)
-        
-        if [ -z "$MANIFEST_PATH" ]; then
-            echo "CRITICAL ERROR: Could not find AppManifest.json anywhere!"
-            find . -maxdepth 3 # List files to help debug
-            exit 1
-        fi
-        
-        echo "Found manifest at: $MANIFEST_PATH"
-        
-        # Calculate the source directory (usually ../src relative to the app folder)
-        # We assume the standard structure: .../app/AppManifest.json -> .../src
-        APP_DIR=$(dirname "$MANIFEST_PATH")
-        SRC_DIR="$APP_DIR/../src"
-        
-        echo "Targeting Source Directory: $SRC_DIR"
-        
-        echo "--- RUNNING GENERATOR ---"
-        
-        # Create the execution script using the found paths
+        # Create a Python script to run the generator using the CORRECT input file (vss.json)
         cat <<EOF > run_gen.py
         import sys
+        # Import the internal CLI
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # Use the paths we found dynamically
+        # Pass the VSS JSON file we just downloaded, NOT the AppManifest
         sys.argv = [
             'velocitas-model-generator',
+            '-m', 'vss.json',
             '-l', 'cpp',
-            '-T', '$SRC_DIR',
-            '$MANIFEST_PATH'
+            '-T', 'examples/seat-adjuster/src'
         ]
         
+        print(f"Generating from vss.json...")
         main()
         EOF
         
-        # Run it
+        # Run the generation
         python run_gen.py
         
-        # Setup Conan
-        conan profile detect --force
-        conan install . --output-folder=build --build=missing -s build_type=Release
+        # Verify it worked
+        if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
+            echo "SUCCESS: Vehicle.h created!"
+        else
+            echo "ERROR: File generation failed."
+            exit 1
+        fi
+
     # 5. Build the App
     - name: Build Seat Adjuster
       run: |
-        # Setup Conan profile
         conan profile detect --force
-        
-        # Install C++ libraries
         conan install . --output-folder=build --build=missing -s build_type=Release
         
-        # Compile
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
         cmake --build . --target seat-adjuster
