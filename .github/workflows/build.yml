@@ -87,12 +87,21 @@ jobs:
             exit 1
         fi
 
-    # 5. Build the App
+   # 5. Build the App (Using Presets)
     - name: Build Seat Adjuster
       run: |
+        # 1. Setup Conan
         conan profile detect --force
+        
+        # 2. Install dependencies
+        # This generates 'CMakeUserPresets.json' in your root folder
         conan install . --output-folder=build --build=missing -s build_type=Release
         
-        cd build
-        cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
-        cmake --build . --target seat-adjuster
+        echo "--- STARTING BUILD WITH PRESETS ---"
+        
+        # 3. Configure using the generated preset
+        # (No need to guess where toolchain.cmake is, the preset knows)
+        cmake --preset conan-release
+        
+        # 4. Compile
+        cmake --build --preset conan-release --target seat-adjuster
