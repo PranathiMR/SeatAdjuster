@@ -14,7 +14,7 @@ jobs:
     # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Set up Python 3.10
+    # 2. Set up Python
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -26,7 +26,7 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Generate Vehicle Model (With Folder Fix)
+    # 4. Generate Vehicle Model (With Post-Processing Fix)
     - name: Generate Vehicle Model
       run: |
         python -m pip install conan velocitas-model-generator jinja2
@@ -36,8 +36,9 @@ jobs:
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
         echo "--- PREPARING FOLDERS ---"
-        # Ensure the 'vehicle' directory exists so C++ can do #include "vehicle/Vehicle.h"
-        mkdir -p examples/seat-adjuster/src/vehicle
+        # Create target directory
+        TARGET_DIR="examples/seat-adjuster/src/vehicle"
+        mkdir -p "$TARGET_DIR"
 
         echo "--- RUNNING GENERATOR ---"
         cat <<EOF > run_gen.py
@@ -47,37 +48,42 @@ jobs:
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # Target the 'vehicle' subfolder explicitly
         sys.argv = [
             'velocitas-model-generator',
             '-u', 'units.yaml',
             '-l', 'cpp',
-            '-T', 'examples/seat-adjuster/src/vehicle',
+            '-T', '$TARGET_DIR',
             'vss.json'
         ]
         
-        print(f"Generating into src/vehicle...")
         main()
         EOF
         
         python run_gen.py
         
-        echo "--- VERIFYING & FIXING PATHS ---"
-        # Debug: List what was generated so we aren't blind
-        find examples/seat-adjuster/src -name "Vehicle.h"
+        echo "--- FIXING FILE STRUCTURE ---"
+        # The generator creates a nested structure: src/vehicle/include/vehicle/...
+        # We need to move those files UP to src/vehicle/ so the compiler finds them.
         
-        # FAIL-SAFE: If the tool generated 'Vehicle.h' inside 'src/vehicle/vehicle' (double nested)
-        # or just 'src/vehicle', we standardize it here.
+        if [ -d "$TARGET_DIR/include/vehicle" ]; then
+            echo "Flattening nested folder structure..."
+            cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
+            rm -rf $TARGET_DIR/include
+        fi
         
-        if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
-            echo "SUCCESS: File found in expected location."
-        elif [ -f "examples/seat-adjuster/src/Vehicle.h" ]; then
-            echo "WARNING: File found in root src. Moving to src/vehicle..."
-            mv examples/seat-adjuster/src/Vehicle.h examples/seat-adjuster/src/vehicle/
-            mv examples/seat-adjuster/src/Vehicle.cpp examples/seat-adjuster/src/vehicle/ || true
+        # FIX: The app expects 'Vehicle.h' but we generated 'Vehicle.hpp'.
+        # We create a copy named 'Vehicle.h' to satisfy the compiler.
+        if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
+            echo "Creating Vehicle.h compatibility link..."
+            cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
+        fi
+
+        # Final Verification
+        if [ -f "$TARGET_DIR/Vehicle.h" ] || [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
+            echo "SUCCESS: Vehicle model generated and positioned correctly."
+            ls -l $TARGET_DIR
         else
-            echo "CRITICAL ERROR: Vehicle.h was not generated. Listing src folder:"
-            ls -R examples/seat-adjuster/src
+            echo "CRITICAL ERROR: Headers missing after fix."
             exit 1
         fi
 
