@@ -26,18 +26,17 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Generate Model (Robust Version)
+    # 4. Install Dependencies & Generate Model (Calculated Path)
     - name: Install Dependencies & Generate Model
       run: |
         pip install conan velocitas-model-generator jinja2
+       
+        GENERATOR_PATH=$(python -c "import sys; print(sys.prefix + '/bin/velocitas-model-generator')")
         
-        # FIX: Find exactly where the generator tool is hiding
-        GENERATOR_TOOL=$(find /opt/hostedtoolcache /home/runner -name velocitas-model-generator -type f 2>/dev/null | head -n 1)
+        echo "Using generator at: $GENERATOR_PATH"
         
-        echo "Found generator at: $GENERATOR_TOOL"
-        
-        # Run the tool using the path we found
-        $GENERATOR_TOOL -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
+        # Run the tool using the calculated path
+        $GENERATOR_PATH -m examples/seat-adjuster/app/AppManifest.json -l cpp -T examples/seat-adjuster/src
         
         # Setup Conan
         conan profile detect --force
