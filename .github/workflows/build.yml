@@ -14,7 +14,7 @@ jobs:
     # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Set up Python
+    # 2. Set up Python 3.10
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -26,48 +26,46 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Generate Vehicle Model
-    - name: Generate Vehicle Model (Standard VSS)
+    # 4. Generate Vehicle Model (VSS v4.0)
+    - name: Generate Vehicle Model
       run: |
-        # Install the generator tool and dependencies
+        # Install the latest generator tools
         python -m pip install conan velocitas-model-generator jinja2
 
-        echo "--- DOWNLOADING STANDARD VSS DATA ---"
-        # 1. Download the Signals (The Dictionary)
-        wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v3.0/vss_rel_3.0.json -O vss.json
-        
-        # 2. Download the Units (The Definitions)
-        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/master/spec/units.yaml -O units.yaml
+        echo "--- DOWNLOADING VSS v4.0 DATA ---"
+        # FIX: Switch to VSS v4.0 for both files to match the tooling version
+        wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
+        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
         echo "--- GENERATING VEHICLE.H ---"
         
-        # Create the Python script to run the tool
+        # Create execution script
         cat <<EOF > run_gen.py
         import sys
         
-        # Import the CLI
+        # Robust Import
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # FIX IS HERE: Added '-u', 'units.yaml'
+        # Arguments: Use the downloaded VSS 4.0 files
         sys.argv = [
             'velocitas-model-generator',
-            '-u', 'units.yaml',                # <--- The Missing Link
-            '-l', 'cpp',                       # Output language
+            '-u', 'units.yaml',                # Unit definitions
+            '-l', 'cpp',                       # Output C++
             '-T', 'examples/seat-adjuster/src',# Output folder
-            'vss.json'                         # Input file (Positional arg at the end)
+            'vss.json'                         # Input Model
         ]
         
-        print(f"Running generator with args: {sys.argv}")
+        print(f"Generating model from VSS 4.0...")
         main()
         EOF
         
-        # Execute
+        # Run it
         python run_gen.py
         
-        # Verify
+        # Verify success
         if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
             echo "SUCCESS: Vehicle.h created!"
         else
@@ -78,9 +76,11 @@ jobs:
     # 5. Build the App
     - name: Build Seat Adjuster
       run: |
+        # Setup Conan
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
+        # Build with CMake
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
         cmake --build . --target seat-adjuster
