@@ -54,7 +54,22 @@ jobs:
         # Install C++ libraries
         conan install . --output-folder=build --build=missing -s build_type=Release
         
+<<<<<<< HEAD
         # Compile
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
         cmake --build . --target seat-adjuster
+=======
+    # 5. Install SDK Dependencies
+    # We add -g CMakeDeps -g CMakeToolchain to ensure presets are generated
+    - name: Install Dependencies
+      run: |
+        conan install . --output-folder=build --build=missing -s build_type=Release
+
+    # 6. Build the Application using Presets
+    # This automatically finds the toolchain file wherever Conan put it
+    - name: Build
+      run: |
+        cmake --preset conan-release
+        cmake --build --preset conan-release
+>>>>>>> 8571dd461f8f2e3b3bf6d60c5731e434141cffcc
