@@ -26,11 +26,18 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Conan (The Package Manager)
-    - name: Install Conan
+    # 4. Install Dependencies (Conan + Generator Tool)
+    - name: Install Dependencies
       run: |
         pip install conan
+        # This is the missing tool that creates Vehicle.h
+        pip install velocitas-model-generator
+        
+        # Install jinja2 just in case the generator needs it
+        pip install jinja2
+        
         conan profile detect --force
+        conan install . --output-folder=build --build=missing -s build_type=Release
 
     # 5. Install SDK Dependencies
     # We add -g CMakeDeps -g CMakeToolchain to ensure presets are generated
