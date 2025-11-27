@@ -49,9 +49,9 @@ jobs:
         # 2. Set the command line arguments manually
         sys.argv = [
             'velocitas-model-generator',
-            '-m', 'examples/seat-adjuster/app/AppManifest.json',
             '-l', 'cpp',
-            '-T', 'examples/seat-adjuster/src'
+            '-T', 'examples/seat-adjuster/src',
+            'examples/seat-adjuster/app/AppManifest.json'
         ]
         
         # 3. Run it
