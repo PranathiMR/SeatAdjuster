@@ -14,7 +14,7 @@ jobs:
     # 1. Check out the code
     - uses: actions/checkout@v4
 
-    # 2. Set up Python 3.10 (Standard for Velocitas)
+    # 2. Set up Python
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
@@ -27,52 +27,47 @@ jobs:
         cmake-version: '3.25'
 
     # 4. Generate Vehicle Model
-    # This step fixes:
-    #   - PATH issues (by using internal python import)
-    #   - 404 errors (by using correct URLs)
-    #   - Argument errors (by removing '-m')
     - name: Generate Vehicle Model (Standard VSS)
       run: |
-        # Install the generator and dependencies
+        # Install the generator tool and dependencies
         python -m pip install conan velocitas-model-generator jinja2
 
-        echo "--- DOWNLOADING STANDARD VSS MODEL ---"
-        # Download the official VSS v3.0 JSON
+        echo "--- DOWNLOADING STANDARD VSS DATA ---"
+        # 1. Download the Signals (The Dictionary)
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v3.0/vss_rel_3.0.json -O vss.json
         
-        # Download units.yaml (from master to avoid 404)
+        # 2. Download the Units (The Definitions)
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/master/spec/units.yaml -O units.yaml
 
         echo "--- GENERATING VEHICLE.H ---"
         
-        # Create a Python script to run the generator internally
+        # Create the Python script to run the tool
         cat <<EOF > run_gen.py
         import sys
         
-        # Robust import: try the dot notation first, fallback to underscore
+        # Import the CLI
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # FIX IS HERE: 
-        # 1. Removed '-m' flag.
-        # 2. Put 'vss.json' as the LAST argument (positional).
+        # FIX IS HERE: Added '-u', 'units.yaml'
         sys.argv = [
             'velocitas-model-generator',
-            '-l', 'cpp',
-            '-T', 'examples/seat-adjuster/src',
-            'vss.json'
+            '-u', 'units.yaml',                # <--- The Missing Link
+            '-l', 'cpp',                       # Output language
+            '-T', 'examples/seat-adjuster/src',# Output folder
+            'vss.json'                         # Input file (Positional arg at the end)
         ]
         
         print(f"Running generator with args: {sys.argv}")
         main()
         EOF
         
-        # Execute the script
+        # Execute
         python run_gen.py
         
-        # Verify success
+        # Verify
         if [ -f "examples/seat-adjuster/src/vehicle/Vehicle.h" ]; then
             echo "SUCCESS: Vehicle.h created!"
         else
@@ -83,13 +78,9 @@ jobs:
     # 5. Build the App
     - name: Build Seat Adjuster
       run: |
-        # Setup Conan profile
         conan profile detect --force
-        
-        # Install C++ libraries
         conan install . --output-folder=build --build=missing -s build_type=Release
         
-        # Build
         cd build
         cmake .. -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake -DCMAKE_BUILD_TYPE=Release
         cmake --build . --target seat-adjuster
