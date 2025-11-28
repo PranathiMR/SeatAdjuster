@@ -1,4 +1,4 @@
-name: Build Seat Adjuster (Final, Direct Fix)
+name: Build Seat Adjuster
 
 on:
   push:
@@ -26,10 +26,24 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies
-    - name: Install Dependencies
+    # 4. Setup Environment & Create "Generator Shim"
+    - name: Setup Build Environment
       run: |
+        # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
+
+        # --- THE SHIM SCRIPT (Fixes Error 2) ---
+        echo "Creating generator shim in $HOME/bin..."
+        mkdir -p $HOME/bin
+        
+        cat <<EOF > $HOME/bin/velocitas-model-generator
+        #!/bin/bash
+        echo "Build-step generator call intercepted by shim. Skipping."
+        exit 0
+        EOF
+        
+        chmod +x $HOME/bin/velocitas-model-generator
+        echo "Shim script created."
 
     # 5. Manually Generate Vehicle Model (The Real One)
     - name: Generate Vehicle Model (Manual)
@@ -43,19 +57,19 @@ jobs:
         mkdir -p "$TARGET_DIR"
 
         echo "--- RUNNING GENERATOR (via Python Script) ---"
-        # We run the REAL generator using our proven Python script method
         cat <<EOF > run_gen.py
         import sys
         
-        # Import the tool's internal main function
         try:
             from velocitas.model_generator.cli import main
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # Set the correct arguments
+        # --- THE C++ FIX IS HERE ---
+        # We add '-N velocitas' to put the model in the correct namespace.
         sys.argv = [
             'velocitas-model-generator',
+            '-N', 'velocitas',                 # <--- Add this namespace
             '-u', 'units.yaml',
             '-l', 'cpp',
             '-T', '$TARGET_DIR',
@@ -71,13 +85,11 @@ jobs:
         echo "--- POST-PROCESSING FILE STRUCTURE ---"
         # Fix the nested 'include/vehicle' folder
         if [ -d "$TARGET_DIR/include/vehicle" ]; then
-            echo "Flattening nested folder..."
             cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
         fi
         
         # Create .h copy from .hpp
         if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
-            echo "Creating compatibility copy Vehicle.h from Vehicle.hpp"
             cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         fi
 
@@ -95,11 +107,9 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- CONFIGURING CMAKE ---"
-        # --- THE FINAL FIX IS HERE ---
-        # We explicitly tell CMake to DISABLE its internal generator step.
-        cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
+        # We tell CMake to use our FAKE "shim" script to avoid the Error 2
+        cmake --preset conan-release -DVELOCITAS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
         
         echo "--- COMPILING ---"
-        # CMake will now skip the generator, find the files
-        # from Step 5, and compile successfully.
+        # This will now compile successfully.
         cmake --build --preset conan-release
