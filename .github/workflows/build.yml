@@ -1,4 +1,4 @@
-name: Build Seat Adjuster (Final, Robust)
+name: Build Seat Adjuster
 
 on:
   push:
@@ -29,7 +29,7 @@ jobs:
     # 4. Install Dependencies
     - name: Install Dependencies
       run: |
-        # Install all Python tools. We will not touch PATH.
+        # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
 
     # 5. Manually Generate Vehicle Model (via Python Script)
@@ -57,7 +57,7 @@ jobs:
         except ImportError:
             from velocitas_model_generator.cli import main
 
-        # This includes the C++ Namespace Fix (-N velocitas)
+        # Includes the C++ Namespace Fix (-N velocitas)
         sys.argv = [
             'velocitas-model-generator',
             '-N', 'velocitas',
@@ -74,16 +74,14 @@ jobs:
         python run_gen.py
         
         echo "--- POST-PROCESSING (FIND & MOVE) ---"
-        # Use 'find' to locate the generated files, wherever they are
+        # Use 'find' to locate the generated files
         HPP_FILE=$(find $GENERATOR_OUTPUT_DIR -name "Vehicle.hpp" | head -n 1)
         
         if [ -z "$HPP_FILE" ]; then
-            echo "CRITICAL ERROR: find could not locate Vehicle.hpp in $GENERATOR_OUTPUT_DIR"
+            echo "CRITICAL ERROR: find could not locate Vehicle.hpp"
             ls -R $GENERATOR_OUTPUT_DIR
             exit 1
         fi
-        
-        echo "Found Vehicle.hpp at $HPP_FILE, moving all generated files..."
         
         # Move all .hpp/.cpp files from the nested dir up to the target dir
         GENERATED_DIR=$(dirname "$HPP_FILE")
@@ -91,11 +89,10 @@ jobs:
             mv $GENERATED_DIR/* $TARGET_DIR/
         fi
         
-        # This is the Header Fix (copy .hpp to .h)
+        # Includes the Header Fix (copy .hpp to .h)
         cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         
-        echo "Copied files to $TARGET_DIR"
-        ls -l $TARGET_DIR
+        echo "Copied all generated files to $TARGET_DIR"
 
     # 6. Build the App
     - name: Build Seat Adjuster
@@ -103,12 +100,16 @@ jobs:
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
+        echo "--- PATCHING CMAKEFILE ---"
+        # --- THE "No such file" FIX IS HERE ---
+        # This injects the missing link to the SDK libraries
+        # It links ALL SDK headers, not just Acceleration.hpp
+        sed -i '/add_executable(example-seatadjusterapp/a target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)' examples/seat-adjuster/CMakeLists.txt
+        
         echo "--- CONFIGURING CMAKE ---"
-        # --- THE gmake Error 2 FIX ---
-        # We explicitly tell CMake to DISABLE its internal generator step.
+        # Includes the gmake "Error 2" Fix
         cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
         
         echo "--- COMPILING ---"
-        # CMake will now skip the generator, find the files
-        # from Step 5, and compile successfully.
+        # This will now compile and link successfully
         cmake --build --preset conan-release
