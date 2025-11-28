@@ -103,17 +103,18 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Robust sed) ---
+        # --- THE "No such file" FIX (Robust sed v2) ---
         # Find the line containing "target_link_libraries(example-seatadjusterapp"
-        # and insert our SDK lib *before* the closing parenthesis.
-        # This respects the existing "plain" signature and avoids conflicts.
-        sed -i '/target_link_libraries(example-seatadjusterapp/ s/)/ velocitas-sdk::vehicle-app-sdk)/' $conf_file
+        # and replace the closing parenthesis (with optional spaces)
+        # at the end of the line.
+        sed -i '/target_link_libraries(example-seatadjusterapp/ s/)\s*$/ velocitas-sdk::vehicle-app-sdk)/' $conf_file
 
         # Verify the patch worked
         echo "--- Verifying patch: ---"
         grep "velocitas-sdk::vehicle-app-sdk" $conf_file
         if [ $? -ne 0 ]; then
             echo "CRITICAL: Patching CMakeLists.txt failed."
+            cat $conf_file
             exit 1
         fi
         
