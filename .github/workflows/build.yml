@@ -101,15 +101,17 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX IS HERE ---
-        # This injects the missing link to the SDK libraries
-        # It links ALL SDK headers, not just Acceleration.hpp
-        sed -i '/add_executable(example-seatadjusterapp/a target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)' examples/seat-adjuster/CMakeLists.txt
+        # --- THE "No such file" FIX (Robust Version) ---
+        # Stop using 'sed'. Append the missing link command to the end
+        # of the file. This is simpler and cannot fail silently.
+        echo '
+        target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)
+        ' >> examples/seat-adjuster/CMakeLists.txt
         
         echo "--- CONFIGURING CMAKE ---"
-        # Includes the gmake "Error 2" Fix
+        # We tell CMake to DISABLE its internal generator step
         cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
         
         echo "--- COMPILING ---"
-        # This will now compile and link successfully
+        # CMake will now compile successfully
         cmake --build --preset conan-release
