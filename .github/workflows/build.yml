@@ -94,19 +94,17 @@ jobs:
         
         echo "Copied all generated files to $TARGET_DIR"
 
-    # 6. Build the App
+   # 6. Build the App
     - name: Build Seat Adjuster
       run: |
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Robust Version) ---
-        # Stop using 'sed'. Append the missing link command to the end
-        # of the file. This is simpler and cannot fail silently.
-        echo '
-        target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)
-        ' >> examples/seat-adjuster/CMakeLists.txt
+        # --- THE "No such file" FIX (sed version) ---
+        # Find the *existing* target_link_libraries command and
+        # append our SDK library to it.
+        sed -i 's/target_link_libraries(example-seatadjusterapp/& PRIVATE velocitas-sdk::vehicle-app-sdk/' examples/seat-adjuster/CMakeLists.txt
         
         echo "--- CONFIGURING CMAKE ---"
         # We tell CMake to DISABLE its internal generator step
