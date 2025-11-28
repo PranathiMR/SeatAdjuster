@@ -1,4 +1,4 @@
-name: Build Seat Adjuster (Final, Robust Pathing)
+name: Build Seat Adjuster (Clean PATH Fix)
 
 on:
   push:
@@ -26,80 +26,62 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Setup Environment & Create "Generator Shim"
+    # 4. Install Dependencies & Fix System PATH
     - name: Setup Build Environment
       run: |
         # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
 
-        # --- THE SHIM SCRIPT (Fixes Error 2) ---
-        echo "Creating generator shim in $HOME/bin..."
-        mkdir -p $HOME/bin
+        # --- THE GLOBAL PATH FIX ---
+        # Find Python's binary/scripts directories using two methods
+        BIN_PATH_1=$(python -c "import sys; print(sys.prefix + '/bin')")
+        BIN_PATH_2=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
         
-        cat <<EOF > $HOME/bin/velocitas-model-generator
-        #!/bin/bash
-        echo "Build-step generator call intercepted by shim. Skipping."
-        exit 0
-        EOF
+        # Add both to the $GITHUB_PATH. This makes 'velocitas-model-generator'
+        # available to ALL subsequent steps in the job.
+        echo "$BIN_PATH_1" >> $GITHUB_PATH
+        echo "$BIN_PATH_2" >> $GITHUB_PATH
         
-        chmod +x $HOME/bin/velocitas-model-generator
-        echo "Shim script created."
+        echo "Added Python bin directories to system PATH."
 
-    # 5. Manually Generate Vehicle Model (The Real One)
+    # 5. Manually Generate Vehicle Model (from PATH)
     - name: Generate Vehicle Model (Manual)
       run: |
         echo "--- DOWNLOADING VSS v4.0 DATA ---"
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
-        # --- PREPARING FOLDERS ---
-        # This is the folder the C++ compiler will look in
+        echo "--- PREPARING FOLDERS ---"
         TARGET_DIR="examples/seat-adjuster/src/vehicle"
         mkdir -p "$TARGET_DIR"
 
-        # This is a temporary folder we tell the generator to use
-        GENERATOR_OUTPUT_DIR="temp_gen_output"
-        mkdir -p "$GENERATOR_OUTPUT_DIR"
-
-        echo "--- RUNNING GENERATOR (via Python Script) ---"
-        cat <<EOF > run_gen.py
-        import sys
+        echo "--- RUNNING GENERATOR (from PATH) ---"
+        # We no longer use a Python script. We call the tool directly
+        # to prove that our PATH fix in Step 4 worked.
+        velocitas-model-generator \
+          -N velocitas \
+          -u units.yaml \
+          -l cpp \
+          -T $TARGET_DIR \
+          vss.json
         
-        try:
-            from velocitas.model_generator.cli import main
-        except ImportError:
-            from velocitas_model_generator.cli import main
-
-        # Add '-N velocitas' to put the model in the correct C++ namespace
-        sys.argv = [
-            'velocitas-model-generator',
-            '-N', 'velocitas',
-            '-u', 'units.yaml',
-            '-l', 'cpp',
-            '-T', '$GENERATOR_OUTPUT_DIR',
-            'vss.json'
-        ]
-        
-        main()
-        EOF
-        
-        # Run the real generator
-        python run_gen.py
-        
-        echo "--- POST-PROCESSING (FIND & MOVE) ---"
-        # Use 'find' to locate the generated files, wherever they are
-        HPP_FILE=$(find $GENERATOR_OUTPUT_DIR -name "Vehicle.hpp" | head -n 1)
+        echo "--- POST-PROCESSING FILE STRUCTURE ---"
+        # Find the .hpp file inside the target dir, wherever it was nested
+        HPP_FILE=$(find $TARGET_DIR -name "Vehicle.hpp" | head -n 1)
         
         if [ -z "$HPP_FILE" ]; then
-            echo "CRITICAL ERROR: find could not locate Vehicle.hpp in $GENERATOR_OUTPUT_DIR"
-            ls -R $GENERATOR_OUTPUT_DIR
+            echo "CRITICAL ERROR: find could not locate Vehicle.hpp in $TARGET_DIR"
+            ls -R $TARGET_DIR
             exit 1
         fi
         
-        echo "Found Vehicle.hpp at $HPP_FILE"
+        echo "Found Vehicle.hpp at $HPP_FILE, moving all generated files..."
         
-        # Copy the .hpp file to the correct location
-        cp "$HPP_FILE" "$TARGET_DIR/Vehicle.hpp"
+        # Move all .hpp/.cpp files from the nested dir up to the target dir
+        GENERATED_DIR=$(dirname "$HPP_FILE")
+        if [ "$GENERATED_DIR" != "$TARGET_DIR" ]; then
+            mv $GENERATED_DIR/* $TARGET_DIR/
+        fi
         
         # Create the .h compatibility copy
         cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
@@ -114,8 +96,10 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- CONFIGURING CMAKE ---"
-        # We explicitly tell CMake to use our FAKE "shim" script
-        cmake --preset conan-release -DVELOCITAS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
+        # We no longer use any hacks (-D flags or shims)
+        cmake --preset conan-release
         
         echo "--- COMPILING ---"
+        # This will now succeed because when CMake tries to run the
+        # generator, it will find it in the global PATH we set in Step 4.
         cmake --build --preset conan-release
