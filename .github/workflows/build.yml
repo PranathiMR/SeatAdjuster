@@ -1,4 +1,4 @@
-name: Build Seat Adjuster
+name: Build Seat Adjuster (Final, Direct Fix)
 
 on:
   push:
@@ -26,26 +26,10 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Setup Environment & Create "Generator Shim"
-    - name: Setup Build Environment
+    # 4. Install Dependencies
+    - name: Install Dependencies
       run: |
-        # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
-
-        # --- THE SHIM SCRIPT ---
-        # We create our fake script in a known location.
-        echo "Creating generator shim in $HOME/bin..."
-        mkdir -p $HOME/bin
-        
-        cat <<EOF > $HOME/bin/velocitas-model-generator
-        #!/bin/bash
-        echo "Build-step generator call intercepted by shim. Skipping."
-        exit 0
-        EOF
-        
-        # Make it executable
-        chmod +x $HOME/bin/velocitas-model-generator
-        echo "Shim script created."
 
     # 5. Manually Generate Vehicle Model (The Real One)
     - name: Generate Vehicle Model (Manual)
@@ -112,11 +96,10 @@ jobs:
         
         echo "--- CONFIGURING CMAKE ---"
         # --- THE FINAL FIX IS HERE ---
-        # We explicitly tell CMake to use our FAKE script by setting
-        # the CORRECT variable name: 'VELOCITAS_MODEL_GENERATOR_EXECUTABLE'
-        cmake --preset conan-release -DVELOCITAS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
+        # We explicitly tell CMake to DISABLE its internal generator step.
+        cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
         
         echo "--- COMPILING ---"
-        # This will now run the "shim" (which does nothing) and
-        # compile the code generated in Step 5.
+        # CMake will now skip the generator, find the files
+        # from Step 5, and compile successfully.
         cmake --build --preset conan-release
