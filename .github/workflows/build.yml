@@ -103,19 +103,18 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Robust echo) ---
-        # Stop using 'sed'. We will read the file, add our line, and write it back.
-        
-        # Read the entire file
-        content=$(cat $conf_file)
-        
-        # Find the closing ')' of the target_link_libraries block and insert our SDK lib
-        # This is a robust string replacement that handles newlines
-        content="${content//target_link_libraries(example-seatadjusterapp/target_link_libraries(example-seatadjusterapp velocitas-sdk::vehicle-app-sdk}"
-        
-        # Write the patched content back to the file
-        echo "$content" > $conf_file
-        
+        # --- THE "No such file" FIX (AWK version) ---
+        # sed and bash are too fragile. Use awk to find the block
+        # and insert the library before the closing parenthesis.
+        awk '
+          /target_link_libraries\(example-seatadjusterapp/ { in_block = 1 }
+          in_block && /^\s*\)/ {
+            print "    velocitas-sdk::vehicle-app-sdk"
+            in_block = 0
+          }
+          { print }
+        ' $conf_file > ${conf_file}.tmp && mv ${conf_file}.tmp $conf_file
+
         # Verify the patch worked
         echo "--- Verifying patch: ---"
         grep "velocitas-sdk::vehicle-app-sdk" $conf_file
