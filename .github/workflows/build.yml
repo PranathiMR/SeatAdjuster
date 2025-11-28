@@ -97,14 +97,25 @@ jobs:
    # 6. Build the App
     - name: Build Seat Adjuster
       run: |
+        conf_file="examples/seat-adjuster/CMakeLists.txt"
+        
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (sed version) ---
-        # Find the *existing* target_link_libraries command and
-        # append our SDK library to it.
-        sed -i 's/target_link_libraries(example-seatadjusterapp/& PRIVATE velocitas-sdk::vehicle-app-sdk/' examples/seat-adjuster/CMakeLists.txt
+        # --- THE "No such file" FIX (Robust sed) ---
+        # Find the line containing "target_link_libraries(example-seatadjusterapp"
+        # and insert our SDK lib *before* the closing parenthesis.
+        # This respects the existing "plain" signature and avoids conflicts.
+        sed -i '/target_link_libraries(example-seatadjusterapp/ s/)/ velocitas-sdk::vehicle-app-sdk)/' $conf_file
+
+        # Verify the patch worked
+        echo "--- Verifying patch: ---"
+        grep "velocitas-sdk::vehicle-app-sdk" $conf_file
+        if [ $? -ne 0 ]; then
+            echo "CRITICAL: Patching CMakeLists.txt failed."
+            exit 1
+        fi
         
         echo "--- CONFIGURING CMAKE ---"
         # We tell CMake to DISABLE its internal generator step
