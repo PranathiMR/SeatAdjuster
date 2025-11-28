@@ -1,122 +1,48 @@
-name: Build Seat Adjuster (Final, Corrected Variable)
+name: C++ SeatAdjuster Build
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    # Use the latest Ubuntu runner, which is common for C/C++ builds
+    runs-on: ubuntu-latest
 
     steps:
-    # 1. Check out the code
-    - uses: actions/checkout@v4
-
-    # 2. Set up Python 3.10
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: ⚙️ Checkout Repository and Fetch Submodules (Crucial Fix)
+      uses: actions/checkout@v4
       with:
-        python-version: '3.10'
+        # This is a critical step for projects with external dependencies like KUKSA/gRPC
+        submodules: true 
 
-    # 3. Install CMake 3.25
-    - name: Install CMake
-      uses: jwlawson/actions-setup-cmake@v1.14
-      with:
-        cmake-version: '3.25'
-
-    # 4. Setup Environment & Create "Generator Shim"
-    - name: Setup Build Environment
+    - name: 🛠️ Install Build Dependencies (The Primary Fix)
       run: |
-        # Install all Python tools
-        python -m pip install conan velocitas-model-generator jinja2
+        echo "Installing gRPC, Protobuf, and C++ build tools..."
+        sudo apt-get update
+        # Install CMake, build tools, and the required C++ development libraries
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          libprotobuf-dev \
+          protobuf-compiler \
+          libgrpc-dev \
+          libgtest-dev \
+          pkg-config
 
-        # --- THE SHIM SCRIPT ---
-        # We create our fake script in a known location.
-        echo "Creating generator shim in $HOME/bin..."
-        mkdir -p $HOME/bin
-        
-        cat <<EOF > $HOME/bin/velocitas-model-generator
-        #!/bin/bash
-        echo "Build-step generator call intercepted by shim. Skipping."
-        exit 0
-        EOF
-        
-        # Make it executable
-        chmod +x $HOME/bin/velocitas-model-generator
-        echo "Shim script created."
+    - name: 🏗️ Configure CMake
+      # Create a separate build directory and configure the project
+      run: cmake -B ${{github.workspace}}/build -S ${{github.workspace}}
 
-    # 5. Manually Generate Vehicle Model (The Real One)
-    - name: Generate Vehicle Model (Manual)
-      run: |
-        echo "--- DOWNLOADING VSS v4.0 DATA ---"
-        wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
-        wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
-
-        echo "--- PREPARING FOLDERS ---"
-        TARGET_DIR="examples/seat-adjuster/src/vehicle"
-        mkdir -p "$TARGET_DIR"
-
-        echo "--- RUNNING GENERATOR (via Python Script) ---"
-        # We run the REAL generator using our proven Python script method
-        cat <<EOF > run_gen.py
-        import sys
-        
-        # Import the tool's internal main function
-        try:
-            from velocitas.model_generator.cli import main
-        except ImportError:
-            from velocitas_model_generator.cli import main
-
-        # Set the correct arguments
-        sys.argv = [
-            'velocitas-model-generator',
-            '-u', 'units.yaml',
-            '-l', 'cpp',
-            '-T', '$TARGET_DIR',
-            'vss.json'
-        ]
-        
-        main()
-        EOF
-        
-        # Run the real generator
-        python run_gen.py
-        
-        echo "--- POST-PROCESSING FILE STRUCTURE ---"
-        # Fix the nested 'include/vehicle' folder
-        if [ -d "$TARGET_DIR/include/vehicle" ]; then
-            echo "Flattening nested folder..."
-            cp -r $TARGET_DIR/include/vehicle/* $TARGET_DIR/
-        fi
-        
-        # Create .h copy from .hpp
-        if [ -f "$TARGET_DIR/Vehicle.hpp" ]; then
-            echo "Creating compatibility copy Vehicle.h from Vehicle.hpp"
-            cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
-        fi
-
-        # Final check
-        if [ ! -f "$TARGET_DIR/Vehicle.h" ]; then
-            echo "CRITICAL ERROR: Vehicle.h not found after generation."
-            exit 1
-        fi
-        echo "SUCCESS: Vehicle.h is in place."
-
-    # 6. Build the App
-    - name: Build Seat Adjuster
-      run: |
-        conan profile detect --force
-        conan install . --output-folder=build --build=missing -s build_type=Release
-        
-        echo "--- CONFIGURING CMAKE ---"
-        # --- THE FINAL FIX IS HERE ---
-        # We explicitly tell CMake to use our FAKE script by setting
-        # the CORRECT variable name: 'VELOCITAS_MODEL_GENERATOR_EXECUTABLE'
-        cmake --preset conan-release -DVELOCITAS_MODEL_GENERATOR_EXECUTABLE=$HOME/bin/velocitas-model-generator
-        
-        echo "--- COMPILING ---"
-        # This will now run the "shim" (which does nothing) and
-        # compile the code generated in Step 5.
-        cmake --build --preset conan-release
+    - name: 🚀 Build Project
+      # Use cmake --build for a standardized build command.
+      # -j$(nproc) uses all available CPU cores for a fast parallel build.
+      run: cmake --build ${{github.workspace}}/build -- -j$(nproc)
+      
+    # Optional: You can add a step here to run the unit tests (sdk_utests) if they exist.
+    # - name: Run Unit Tests
+    #   run: |
+    #     cd ${{github.workspace}}/build
+    #     ctest --output-on-failure
