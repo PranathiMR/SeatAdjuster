@@ -94,20 +94,20 @@ jobs:
         
         echo "Copied all generated files to $TARGET_DIR"
 
-   # 6. Build the App
+  # 6. Build the App
     - name: Build Seat Adjuster
       run: |
         conf_file="examples/seat-adjuster/CMakeLists.txt"
         
         conan profile detect --force
-        conan install . --output-folder=build --build=missing -s build_type=Release
+        conan install . --output-folder=build --build=missing -s build_S_BUILD_TYPE=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Robust sed v2) ---
-        # Find the line containing "target_link_libraries(example-seatadjusterapp"
-        # and replace the closing parenthesis (with optional spaces)
-        # at the end of the line.
-        sed -i '/target_link_libraries(example-seatadjusterapp/ s/)\s*$/ velocitas-sdk::vehicle-app-sdk)/' $conf_file
+        # --- THE "No such file" FIX (Multi-line sed) ---
+        # Find the line with the closing parenthesis ")"
+        # inside the "target_link_libraries" block
+        # and insert our SDK lib *before* it.
+        sed -i '/target_link_libraries(example-seatadjusterapp/,/)/ { /)/ { i \ \ \ \ velocitas-sdk::vehicle-app-sdk' -e ' } }' $conf_file
 
         # Verify the patch worked
         echo "--- Verifying patch: ---"
