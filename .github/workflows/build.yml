@@ -99,17 +99,23 @@ jobs:
       run: |
         conf_file="examples/seat-adjuster/CMakeLists.txt"
         
-        # --- CONAN FIX IS HERE ---
-        # Corrected 'build_S_BUILD_TYPE' to 'build_type'
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # Find the line with the closing parenthesis ")"
-        # inside the "target_link_libraries" block
-        # and insert our SDK lib *before* it.
-        sed -i '/target_link_libraries(example-seatadjusterapp/,/)/ { /)/ { i \ \ \ \ velocitas-sdk::vehicle-app-sdk' -e ' } }' $conf_file
-
+        # --- THE "No such file" FIX (Robust echo) ---
+        # Stop using 'sed'. We will read the file, add our line, and write it back.
+        
+        # Read the entire file
+        content=$(cat $conf_file)
+        
+        # Find the closing ')' of the target_link_libraries block and insert our SDK lib
+        # This is a robust string replacement that handles newlines
+        content="${content//target_link_libraries(example-seatadjusterapp/target_link_libraries(example-seatadjusterapp velocitas-sdk::vehicle-app-sdk}"
+        
+        # Write the patched content back to the file
+        echo "$content" > $conf_file
+        
         # Verify the patch worked
         echo "--- Verifying patch: ---"
         grep "velocitas-sdk::vehicle-app-sdk" $conf_file
