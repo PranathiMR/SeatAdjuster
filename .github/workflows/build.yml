@@ -18,11 +18,10 @@ jobs:
         # This is a critical step for projects with external dependencies like KUKSA/gRPC
         submodules: true 
 
-    - name: 🛠️ Install Build Dependencies (The Primary Fix)
+   - name: 🛠️ Install Build Dependencies (Adding fmt fix)
       run: |
-        echo "Installing gRPC, Protobuf, and C++ build tools..."
+        echo "Installing gRPC, Protobuf, and C++ build tools, including fmt..."
         sudo apt-get update
-        # Install CMake, build tools, and the required C++ development libraries
         sudo apt-get install -y \
           build-essential \
           cmake \
@@ -30,7 +29,8 @@ jobs:
           protobuf-compiler \
           libgrpc-dev \
           libgtest-dev \
-          pkg-config
+          pkg-config \
+          libfmt-dev # <--- THIS IS THE NEW, CRITICAL PACKAGE
 
     - name: 🏗️ Configure CMake
       # Create a separate build directory and configure the project
