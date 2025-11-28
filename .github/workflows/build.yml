@@ -99,11 +99,12 @@ jobs:
       run: |
         conf_file="examples/seat-adjuster/CMakeLists.txt"
         
+        # --- CONAN FIX IS HERE ---
+        # Corrected 'build_S_BUILD_TYPE' to 'build_type'
         conan profile detect --force
-        conan install . --output-folder=build --build=missing -s build_S_BUILD_TYPE=Release
+        conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Multi-line sed) ---
         # Find the line with the closing parenthesis ")"
         # inside the "target_link_libraries" block
         # and insert our SDK lib *before* it.
