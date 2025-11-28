@@ -1,4 +1,4 @@
-name: Build Seat Adjuster (Clean PATH Fix)
+name: Build Seat Adjuster (Final, Robust)
 
 on:
   push:
@@ -26,52 +26,60 @@ jobs:
       with:
         cmake-version: '3.25'
 
-    # 4. Install Dependencies & Fix System PATH
-    - name: Setup Build Environment
+    # 4. Install Dependencies
+    - name: Install Dependencies
       run: |
-        # Install all Python tools
+        # Install all Python tools. We will not touch PATH.
         python -m pip install conan velocitas-model-generator jinja2
 
-        # --- THE GLOBAL PATH FIX ---
-        # Find Python's binary/scripts directories using two methods
-        BIN_PATH_1=$(python -c "import sys; print(sys.prefix + '/bin')")
-        BIN_PATH_2=$(python -c "import sysconfig; print(sysconfig.get_path('scripts'))")
-        
-        # Add both to the $GITHUB_PATH. This makes 'velocitas-model-generator'
-        # available to ALL subsequent steps in the job.
-        echo "$BIN_PATH_1" >> $GITHUB_PATH
-        echo "$BIN_PATH_2" >> $GITHUB_PATH
-        
-        echo "Added Python bin directories to system PATH."
-
-    # 5. Manually Generate Vehicle Model (from PATH)
+    # 5. Manually Generate Vehicle Model (via Python Script)
     - name: Generate Vehicle Model (Manual)
       run: |
         echo "--- DOWNLOADING VSS v4.0 DATA ---"
         wget https://github.com/COVESA/vehicle_signal_specification/releases/download/v4.0/vss_rel_4.0.json -O vss.json
         wget https://raw.githubusercontent.com/COVESA/vehicle_signal_specification/v4.0/spec/units.yaml -O units.yaml
 
-        echo "--- PREPARING FOLDERS ---"
+        # --- PREPARING FOLDERS ---
         TARGET_DIR="examples/seat-adjuster/src/vehicle"
         mkdir -p "$TARGET_DIR"
 
-        echo "--- RUNNING GENERATOR (from PATH) ---"
-        # We no longer use a Python script. We call the tool directly
-        # to prove that our PATH fix in Step 4 worked.
-        velocitas-model-generator \
-          -N velocitas \
-          -u units.yaml \
-          -l cpp \
-          -T $TARGET_DIR \
-          vss.json
+        # This is a temporary folder we tell the generator to use
+        GENERATOR_OUTPUT_DIR="temp_gen_output"
+        mkdir -p "$GENERATOR_OUTPUT_DIR"
+
+        echo "--- RUNNING GENERATOR (via Python Script) ---"
+        # This script bypasses all PATH issues
+        cat <<EOF > run_gen.py
+        import sys
         
-        echo "--- POST-PROCESSING FILE STRUCTURE ---"
-        # Find the .hpp file inside the target dir, wherever it was nested
-        HPP_FILE=$(find $TARGET_DIR -name "Vehicle.hpp" | head -n 1)
+        try:
+            from velocitas.model_generator.cli import main
+        except ImportError:
+            from velocitas_model_generator.cli import main
+
+        # This includes the C++ Namespace Fix (-N velocitas)
+        sys.argv = [
+            'velocitas-model-generator',
+            '-N', 'velocitas',
+            '-u', 'units.yaml',
+            '-l', 'cpp',
+            '-T', '$GENERATOR_OUTPUT_DIR',
+            'vss.json'
+        ]
+        
+        main()
+        EOF
+        
+        # Run the real generator
+        python run_gen.py
+        
+        echo "--- POST-PROCESSING (FIND & MOVE) ---"
+        # Use 'find' to locate the generated files, wherever they are
+        HPP_FILE=$(find $GENERATOR_OUTPUT_DIR -name "Vehicle.hpp" | head -n 1)
         
         if [ -z "$HPP_FILE" ]; then
-            echo "CRITICAL ERROR: find could not locate Vehicle.hpp in $TARGET_DIR"
-            ls -R $TARGET_DIR
+            echo "CRITICAL ERROR: find could not locate Vehicle.hpp in $GENERATOR_OUTPUT_DIR"
+            ls -R $GENERATOR_OUTPUT_DIR
             exit 1
         fi
         
@@ -83,7 +91,7 @@ jobs:
             mv $GENERATED_DIR/* $TARGET_DIR/
         fi
         
-        # Create the .h compatibility copy
+        # This is the Header Fix (copy .hpp to .h)
         cp "$TARGET_DIR/Vehicle.hpp" "$TARGET_DIR/Vehicle.h"
         
         echo "Copied files to $TARGET_DIR"
@@ -96,10 +104,11 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- CONFIGURING CMAKE ---"
-        # We no longer use any hacks (-D flags or shims)
-        cmake --preset conan-release
+        # --- THE gmake Error 2 FIX ---
+        # We explicitly tell CMake to DISABLE its internal generator step.
+        cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
         
         echo "--- COMPILING ---"
-        # This will now succeed because when CMake tries to run the
-        # generator, it will find it in the global PATH we set in Step 4.
+        # CMake will now skip the generator, find the files
+        # from Step 5, and compile successfully.
         cmake --build --preset conan-release
