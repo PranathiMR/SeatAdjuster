@@ -1,4 +1,4 @@
-name: Build Seat Adjuster
+name: Build Seat Adjuster (Final - Plain Signature Fix)
 
 on:
   push:
@@ -29,7 +29,6 @@ jobs:
     # 4. Install Dependencies
     - name: Install Dependencies
       run: |
-        # Install all Python tools
         python -m pip install conan velocitas-model-generator jinja2
 
     # 5. Manually Generate Vehicle Model (via Python Script)
@@ -48,7 +47,6 @@ jobs:
         mkdir -p "$GENERATOR_OUTPUT_DIR"
 
         echo "--- RUNNING GENERATOR (via Python Script) ---"
-        # This script bypasses all PATH issues
         cat <<EOF > run_gen.py
         import sys
         
@@ -74,12 +72,10 @@ jobs:
         python run_gen.py
         
         echo "--- POST-PROCESSING (FIND & MOVE) ---"
-        # Use 'find' to locate the generated files
         HPP_FILE=$(find $GENERATOR_OUTPUT_DIR -name "Vehicle.hpp" | head -n 1)
         
         if [ -z "$HPP_FILE" ]; then
             echo "CRITICAL ERROR: find could not locate Vehicle.hpp"
-            ls -R $GENERATOR_OUTPUT_DIR
             exit 1
         fi
         
@@ -94,34 +90,23 @@ jobs:
         
         echo "Copied all generated files to $TARGET_DIR"
 
- # 6. Build the App
+    # 6. Build the App
     - name: Build Seat Adjuster
       run: |
-        conf_file="examples/seat-adjuster/CMakeLists.txt"
-        
         conan profile detect --force
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (Append Strategy) ---
-        # Instead of editing the file, we simply ADD a new link command to the end.
-        # CMake allows this and will combine them. This cannot fail due to formatting.
-        echo "" >> $conf_file
-        echo "target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)" >> $conf_file
-
-        # Verify the patch worked
-        echo "--- Verifying patch: ---"
-        tail -n 5 $conf_file
-        grep "velocitas-sdk::vehicle-app-sdk" $conf_file
-        if [ $? -ne 0 ]; then
-            echo "CRITICAL: Patching CMakeLists.txt failed."
-            exit 1
-        fi
+        # --- THE FINAL FIX ---
+        # We append the library to the end of the file.
+        # CRITICAL: We removed 'PRIVATE' to match the "Plain Signature" style
+        # of the existing file. This resolves the CMake error.
+        echo "" >> examples/seat-adjuster/CMakeLists.txt
+        echo "target_link_libraries(example-seatadjusterapp velocitas-sdk::vehicle-app-sdk)" >> examples/seat-adjuster/CMakeLists.txt
         
         echo "--- CONFIGURING CMAKE ---"
-        # We tell CMake to DISABLE its internal generator step
+        # Disable internal generator to avoid Error 2
         cmake --preset conan-release -DVELOCITAS_GENERATE_MODEL=OFF
         
         echo "--- COMPILING ---"
-        # CMake will now compile successfully
         cmake --build --preset conan-release
