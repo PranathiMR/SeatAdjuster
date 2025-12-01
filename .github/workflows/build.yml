@@ -94,7 +94,7 @@ jobs:
         
         echo "Copied all generated files to $TARGET_DIR"
 
-  # 6. Build the App
+ # 6. Build the App
     - name: Build Seat Adjuster
       run: |
         conf_file="examples/seat-adjuster/CMakeLists.txt"
@@ -103,24 +103,18 @@ jobs:
         conan install . --output-folder=build --build=missing -s build_type=Release
         
         echo "--- PATCHING CMAKEFILE ---"
-        # --- THE "No such file" FIX (AWK version) ---
-        # sed and bash are too fragile. Use awk to find the block
-        # and insert the library before the closing parenthesis.
-        awk '
-          /target_link_libraries\(example-seatadjusterapp/ { in_block = 1 }
-          in_block && /^\s*\)/ {
-            print "    velocitas-sdk::vehicle-app-sdk"
-            in_block = 0
-          }
-          { print }
-        ' $conf_file > ${conf_file}.tmp && mv ${conf_file}.tmp $conf_file
+        # --- THE "No such file" FIX (Append Strategy) ---
+        # Instead of editing the file, we simply ADD a new link command to the end.
+        # CMake allows this and will combine them. This cannot fail due to formatting.
+        echo "" >> $conf_file
+        echo "target_link_libraries(example-seatadjusterapp PRIVATE velocitas-sdk::vehicle-app-sdk)" >> $conf_file
 
         # Verify the patch worked
         echo "--- Verifying patch: ---"
+        tail -n 5 $conf_file
         grep "velocitas-sdk::vehicle-app-sdk" $conf_file
         if [ $? -ne 0 ]; then
             echo "CRITICAL: Patching CMakeLists.txt failed."
-            cat $conf_file
             exit 1
         fi
         
